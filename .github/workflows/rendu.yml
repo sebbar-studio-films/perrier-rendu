@@ -1,0 +1,61 @@
+name: Rendu
+on:
+  workflow_dispatch:
+    inputs:
+      fichier: {description: "Scène (pub_h.blend ou pub_v.blend)", default: "pub_h.blend"}
+      debut: {description: "Première image", default: "1"}
+      fin: {description: "Dernière image", default: "150"}
+      morceaux: {description: "Nombre de machines", default: "20"}
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      tranches: ${{ steps.p.outputs.tranches }}
+    steps:
+      - id: p
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          a, b, n = ${{ inputs.debut }}, ${{ inputs.fin }}, ${{ inputs.morceaux }}
+          tot = b - a + 1; n = max(1, min(n, tot))
+          t = [{"s": a + tot * i // n, "e": a + tot * (i + 1) // n - 1} for i in range(n)]
+          print("tranches=" + json.dumps(t))
+          PY
+
+  rendu:
+    needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 256
+      matrix:
+        tranche: ${{ fromJSON(needs.plan.outputs.tranches) }}
+    steps:
+      - uses: actions/cache@v4
+        id: cache
+        with:
+          path: blender
+          key: blender-5.2.2-linux-x64
+      - if: steps.cache.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download v1 -R "$GITHUB_REPOSITORY" -p blender-5.2.2-linux-x64.tar.xz -O b.tar.xz
+          mkdir -p blender && tar -xf b.tar.xz -C blender --strip-components=1 && rm b.tar.xz
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq libxrender1 libxi6 libxkbcommon0 libsm6 libgl1 libxxf86vm1 libxfixes3 libegl1 > /dev/null
+      - run: gh release download v1 -R "$GITHUB_REPOSITORY" -p "${{ inputs.fichier }}"
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Images ${{ matrix.tranche.s }} à ${{ matrix.tranche.e }}
+        run: |
+          mkdir -p images
+          ./blender/blender -b "${{ inputs.fichier }}" -o "$PWD/images/img_####" -F PNG \
+            -s ${{ matrix.tranche.s }} -e ${{ matrix.tranche.e }} -a 2>&1 | grep -E "Saved|Time:|Error|error" || true
+          ls images | wc -l
+      - uses: actions/upload-artifact@v4
+        with:
+          name: images-${{ matrix.tranche.s }}
+          path: images
+          retention-days: 7

@@ -6,6 +6,7 @@ on:
       debut: {description: "Première image", default: "1"}
       fin: {description: "Dernière image", default: "150"}
       morceaux: {description: "Nombre de machines", default: "20"}
+      liste: {description: "Images isolées, une machine chacune, ex. 5,6,7 (remplace début/fin)", default: ""}
 
 jobs:
   plan:
@@ -20,6 +21,9 @@ jobs:
           a, b, n = ${{ inputs.debut }}, ${{ inputs.fin }}, ${{ inputs.morceaux }}
           tot = b - a + 1; n = max(1, min(n, tot))
           t = [{"s": a + tot * i // n, "e": a + tot * (i + 1) // n - 1} for i in range(n)]
+          liste = "${{ inputs.liste }}".strip()
+          if liste:
+              t = [{"s": int(f), "e": int(f)} for f in liste.split(",")]
           print("tranches=" + json.dumps(t))
           PY
 
